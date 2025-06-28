@@ -362,6 +362,14 @@ function defineVideoController() {
       case location.hostname == "tv.apple.com":
         // insert after parent for correct stacking context
         this.parent.getRootNode().querySelector(".scrim").prepend(fragment);
+        break;
+      case location.hostname == "www.youtube.com":
+      case location.hostname == "youtube.com":
+        // sometimes, the controller gets buried under the video
+        // by inserting it at the parent level, we ensure that it's on top
+        let parent = this.parent.parentElement;
+        parent.insertBefore(fragment, parent.firstChild);
+        break;
       default:
         // Note: when triggered via a MutationRecord, it's possible that the
         // target is not the immediate parent. This appends the controller as
