@@ -560,10 +560,12 @@ function initializeNow(document) {
     if (inIframe()) docs.push(window.top.document);
   } catch (e) {}
 
-  docs.forEach(function (doc) {
-    doc.addEventListener(
-      "keydown",
-      function (event) {
+  // Keep a named reference so the listener can be removed again. Without
+  // this, a listener registered on window.top.document from inside an iframe
+  // (or on a child frame's document from its parent) pins this content
+  // script's sandbox, and with it the whole page, after the frame goes away,
+  // leaving "ghost windows" in about:memory.
+  var keydownHandler = function (event) {
         var keyCode = event.keyCode;
         log("Processing keydown event: " + keyCode, 6);
 
@@ -606,9 +608,10 @@ function initializeNow(document) {
         }
 
         return false;
-      },
-      true
-    );
+  };
+
+  docs.forEach(function (doc) {
+    doc.addEventListener("keydown", keydownHandler, true);
   });
 
   function checkForVideo(node, parent, added) {
@@ -677,6 +680,50 @@ function initializeNow(document) {
     attributeFilter: ["aria-hidden"],
     childList: true,
     subtree: true
+  });
+
+  // Tear down everything that references other documents once this document
+  // (or the frame running this script) is unloaded, so nothing outlives it.
+  var cleanedUp = false;
+  function cleanup(event) {
+    if (cleanedUp) return;
+    cleanedUp = true;
+    docs.forEach(function (doc) {
+      try {
+        doc.removeEventListener("keydown", keydownHandler, true);
+      } catch (e) {}
+    });
+    try {
+      observer.disconnect();
+    } catch (e) {}
+    try {
+      document.onreadystatechange = null;
+    } catch (e) {}
+    // Page went into the back/forward cache: allow re-init when it comes back.
+    if (event && event.persisted) {
+      try {
+        document.body.classList.remove("vsc-initialized");
+      } catch (e) {}
+      var view = document.defaultView;
+      if (view) {
+        view.addEventListener(
+          "pageshow",
+          function () {
+            initializeNow(document);
+          },
+          { once: true }
+        );
+      }
+    }
+  }
+  var views = [window];
+  if (document.defaultView && document.defaultView !== window) {
+    views.push(document.defaultView);
+  }
+  views.forEach(function (view) {
+    try {
+      view.addEventListener("pagehide", cleanup, { once: true });
+    } catch (e) {}
   });
 
   if (tc.settings.audioBoolean) {
